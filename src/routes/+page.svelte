@@ -1,10 +1,23 @@
 <script lang="ts">
-  import { marked } from 'marked';
-  import DOMPurify from 'dompurify';
+  import { onMount } from 'svelte';
+
+  // We will load these libraries only in the browser
+  let marked: any = null;
+  let DOMPurify: any = null;
+
+  // onMount runs only on the client-side (in the browser)
+  onMount(async () => {
+    // Use dynamic import() to load the modules here
+    const markedModule = await import('marked');
+    marked = markedModule.marked;
+    
+    const DOMPurifyModule = await import('dompurify');
+    DOMPurify = DOMPurifyModule.default;
+  });
 
   // This holds the conversation history
   let messages: { role: 'user' | 'assistant'; content: string }[] = [
-    { role: 'assistant', content: 'Hello! I am LFM2, running on a Raspberry Pi. How can I help you?' }
+    { role: 'assistant', content: 'Hello! How can I help you?' }
   ];
 
   let userInput = '';
@@ -17,17 +30,14 @@
     const currentUserInput = userInput;
     userInput = '';
 
-    // Add the user's message to the chat
     messages = [...messages, { role: 'user', content: currentUserInput }];
-
-    // Add a placeholder for the assistant's streaming response
     messages = [...messages, { role: 'assistant', content: '' }];
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: messages.slice(0, -1) }) // Send all messages except the empty placeholder
+        body: JSON.stringify({ messages: messages.slice(0, -1) })
       });
 
       if (!response.ok || !response.body) {
@@ -37,13 +47,11 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
-      // Read the stream
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value);
-        // The llama.cpp server sends data in SSE format (data: {...})
         const lines = chunk.split('\n\n').filter(line => line.trim());
         
         for (const line of lines) {
@@ -54,10 +62,8 @@
             try {
               const parsed = JSON.parse(jsonStr);
               const token = parsed.choices[0]?.delta?.content || '';
-              
-              // Append the new token to the last message
               messages[messages.length - 1].content += token;
-              messages = messages; // This triggers Svelte's reactivity
+              messages = messages;
             } catch (e) {
               console.error('Could not parse JSON chunk:', jsonStr);
             }
@@ -74,12 +80,21 @@
 </script>
 
 <main>
-  <h1>LFM2 Chat</h1>
+  <h1>Raspbi Liquid Foundation Model Chat</h1>
   <div class="chat-window">
     {#each messages as message}
       <div class="message" class:user={message.role === 'user'} class:assistant={message.role === 'assistant'}>
-        <!-- This is the key change! -->
-        {@html DOMPurify.sanitize(marked.parse(message.content))}
+        <!-- 
+          Now we check if the libraries have been loaded.
+          On the server, they will be null, so we show plain text.
+          In the browser, after onMount, they will exist, and we render HTML.
+        -->
+        {#if DOMPurify && marked}
+          {@html DOMPurify.sanitize(marked.parse(message.content))}
+        {:else}
+          <!-- Fallback for Server-Side Rendering -->
+          <pre style="font-family: inherit; white-space: pre-wrap;">{message.content}</pre>
+        {/if}
       </div>
     {/each}
     {#if isLoading && messages[messages.length - 1]?.content === ''}
@@ -119,7 +134,7 @@
     padding: 0.5em 1em;
     border-radius: 10px;
     max-width: 80%;
-    word-wrap: break-word; /* Helps with long words */
+    word-wrap: break-word;
   }
   .message :global(h1), .message :global(h2) {
     margin-top: 0;
