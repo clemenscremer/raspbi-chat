@@ -1,0 +1,2 @@
+root ::= ws "get_raspberry_pi_status" ws "(" ws ")"
+ws ::= [ \t\n]*
