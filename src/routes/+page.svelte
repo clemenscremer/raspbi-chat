@@ -1,43 +1,50 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  // We will load these libraries only in the browser
   let marked: any = null;
   let DOMPurify: any = null;
 
-  // onMount runs only on the client-side (in the browser)
   onMount(async () => {
-    // Use dynamic import() to load the modules here
-    const markedModule = await import('marked');
-    marked = markedModule.marked;
-    
-    const DOMPurifyModule = await import('dompurify');
-    DOMPurify = DOMPurifyModule.default;
+    try {
+      const markedModule = await import('marked');
+      marked = markedModule.marked;
+      
+      const DOMPurifyModule = await import('dompurify');
+      DOMPurify = DOMPurifyModule.default;
+    } catch (e) {
+      console.error("Failed to load Markdown libraries", e);
+    }
   });
 
-  // This holds the conversation history
-  let messages: { role: 'user' | 'assistant'; content: string }[] = [
-    { role: 'assistant', content: 'Hello! How can I help you?' }
-  ];
+  const initialMessage = { 
+    role: 'assistant' as const, 
+    content: 'Hello! I am LFM2, running on a Raspberry Pi. How can I help you?' 
+  };
+
+  let messages: { role: 'user' | 'assistant'; content: string }[] = [initialMessage];
 
   let userInput = '';
   let isLoading = false;
 
+  function clearChat() {
+    messages = [initialMessage];
+  }
+
   async function handleSubmit() {
     if (!userInput.trim() || isLoading) return;
 
-    isLoading = true;
     const currentUserInput = userInput;
+    const apiPayload = [...messages, { role: 'user', content: currentUserInput }];
+    messages = [...apiPayload, { role: 'assistant', content: '' }];
+    
     userInput = '';
-
-    messages = [...messages, { role: 'user', content: currentUserInput }];
-    messages = [...messages, { role: 'assistant', content: '' }];
+    isLoading = true;
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: messages.slice(0, -1) })
+        body: JSON.stringify({ messages: apiPayload })
       });
 
       if (!response.ok || !response.body) {
@@ -46,6 +53,7 @@
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      messages[messages.length - 1].content = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -80,19 +88,18 @@
 </script>
 
 <main>
-  <h1>Raspbi Liquid Foundation Model Chat</h1>
+  <div class="header">
+    <h1>Raspbi LFM Chat</h1>
+    <!-- THIS IS THE KEY CHANGE: Added type="button" -->
+    <button type="button" class="clear-button" on:click={clearChat}>Clear Chat</button>
+  </div>
+
   <div class="chat-window">
     {#each messages as message}
       <div class="message" class:user={message.role === 'user'} class:assistant={message.role === 'assistant'}>
-        <!-- 
-          Now we check if the libraries have been loaded.
-          On the server, they will be null, so we show plain text.
-          In the browser, after onMount, they will exist, and we render HTML.
-        -->
         {#if DOMPurify && marked}
           {@html DOMPurify.sanitize(marked.parse(message.content))}
         {:else}
-          <!-- Fallback for Server-Side Rendering -->
           <pre style="font-family: inherit; white-space: pre-wrap;">{message.content}</pre>
         {/if}
       </div>
@@ -120,12 +127,20 @@
     font-family: sans-serif;
     padding: 1em;
   }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1em;
+  }
+  h1 {
+    margin: 0;
+  }
   .chat-window {
     height: 70vh;
     overflow-y: auto;
     border: 1px solid #ccc;
     padding: 1em;
-    margin-bottom: 1em;
     display: flex;
     flex-direction: column;
   }
@@ -174,6 +189,12 @@
   }
   button:disabled {
     background-color: #aaa;
+  }
+  .clear-button {
+    background-color: #6c757d;
+  }
+  .clear-button:hover {
+    background-color: #5a6268;
   }
   .blinking-cursor {
     display: inline-block;
