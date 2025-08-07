@@ -18,7 +18,7 @@
 
   const initialMessage = { 
     role: 'assistant' as const, 
-    content: 'Hello! I am LFM2, running on a Raspberry Pi. How can I help you?' 
+    content: 'Hello! How can I help you?' 
   };
 
   let messages: { role: 'user' | 'assistant'; content: string }[] = [initialMessage];
@@ -89,7 +89,7 @@
 
 <main>
   <div class="header">
-    <h1>Raspbi LFM Chat</h1>
+    <h1>Pi LFM Chat</h1>
     <!-- THIS IS THE KEY CHANGE: Added type="button" -->
     <button type="button" class="clear-button" on:click={clearChat}>Clear Chat</button>
   </div>
