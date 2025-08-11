@@ -1,69 +1,96 @@
+// src/routes/api/chat/+server.ts
+
 import type { RequestHandler } from './$types';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-const execAsync = promisify(exec);
-
-// IMPORTANT: Replace with your Raspberry Pi's details
+// Configuration
 const PI_LLAMA_SERVER = 'http://192.168.1.98:8080/completion';
-const PI_HOST = '192.168.1.98';
-const PI_USER = 'clcr'; // Your Pi username
+const PI_MCP_SERVER = 'http://192.168.1.98:8765/tool'; // Your new MCP server!
 
-// --- Function Implementation ---
+// --- Function Implementation using MCP ---
 async function get_raspberry_pi_status() {
     try {
-        // Execute commands on the remote Pi via SSH
-        const tempCommand = `ssh ${PI_USER}@${PI_HOST} "vcgencmd measure_temp"`;
-        const memCommand = `ssh ${PI_USER}@${PI_HOST} "free -m | grep Mem | awk '{print \\$3/\\$2 * 100}'"`;
-        
-        const tempPromise = execAsync(tempCommand);
-        const memPromise = execAsync(memCommand);
-
-        const [tempResult, memResult] = await Promise.all([
-            tempPromise.catch(e => {
-                console.error("Temp command error:", e);
-                return { stdout: "N/A", stderr: e.message };
-            }),
-            memPromise.catch(e => {
-                console.error("Memory command error:", e);
-                return { stdout: "0", stderr: e.message };
+        const response = await fetch(PI_MCP_SERVER, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'get_raspberry_pi_status',
+                arguments: {}
             })
-        ]);
-
-        const tempOutput = tempResult.stdout.trim();
-        const cpu_temp = tempOutput.includes('temp=') ? tempOutput.replace('temp=', '') : tempOutput;
-        
-        const memValue = parseFloat(memResult.stdout.trim());
-        const memory_usage = !isNaN(memValue) ? `${memValue.toFixed(2)}%` : "N/A";
-
-        console.log("[Tool] Temperature:", cpu_temp);
-        console.log("[Tool] Memory:", memory_usage);
-
-        return JSON.stringify({ 
-            cpu_temp: cpu_temp || "N/A",
-            memory_usage: memory_usage 
         });
-    } catch (error) {
-        console.error("Error getting Pi status:", error);
-        // Fallback: Try to get status via HTTP from the Pi
-        try {
-            // You could set up a simple HTTP endpoint on the Pi for this
-            return JSON.stringify({ 
-                cpu_temp: "Unable to connect via SSH",
-                memory_usage: "Unable to connect via SSH",
-                note: "Ensure SSH key is set up for passwordless access"
-            });
-        } catch {
-            return JSON.stringify({ error: "Could not retrieve Pi status" });
+
+        if (!response.ok) {
+            throw new Error(`MCP server error: ${response.status}`);
         }
+
+        const data = await response.json();
+        
+        // Log for debugging
+        console.log("[MCP] Response:", data);
+        
+        return JSON.stringify(data);
+    } catch (error) {
+        console.error("Error calling MCP tool:", error);
+        return JSON.stringify({ 
+            error: "Could not retrieve Pi status via MCP",
+            details: error.message 
+        });
     }
 }
 
+// --- Tool Mapping --- (ONLY DECLARE THIS ONCE!)
 // --- Tool Mapping ---
 const available_tools: { [key: string]: () => Promise<string> } = {
     get_raspberry_pi_status: get_raspberry_pi_status,
+    get_system_uptime: async () => {
+        try {
+            const response = await fetch(PI_MCP_SERVER, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: 'get_system_uptime',
+                    arguments: {}
+                })
+            });
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            return JSON.stringify({ error: "Could not retrieve uptime" });
+        }
+    },
+    get_network_info: async () => {
+        try {
+            const response = await fetch(PI_MCP_SERVER, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: 'get_network_info',
+                    arguments: {}
+                })
+            });
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            return JSON.stringify({ error: "Could not retrieve network info" });
+        }
+    },
+    get_top_processes: async () => {
+        try {
+            const response = await fetch(PI_MCP_SERVER, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: 'get_top_processes',
+                    arguments: {}
+                })
+            });
+            const data = await response.json();
+            return JSON.stringify(data);
+        } catch (error) {
+            return JSON.stringify({ error: "Could not retrieve process list" });
+        }
+    }
 };
 
 // Helper to format the prompt for the /completion endpoint
@@ -147,19 +174,24 @@ export const POST: RequestHandler = async ({ request }) => {
     let streamResponse: Response;
 
     // Add or update system message with tool information
-    const systemMessage = {
-        role: 'system',
-        content: `You are LFM2, a helpful assistant running on a Raspberry Pi. You have access to the following tool:
+const systemMessage = {
+    role: 'system',
+    content: `You are LFM2, a helpful assistant running on a Raspberry Pi. You have access to the following tools:
 
 <|tool_list_start|>
-[{"name": "get_raspberry_pi_status", "description": "Gets the current CPU temperature and memory usage of the Raspberry Pi"}]
+[
+  {"name": "get_raspberry_pi_status", "description": "Gets CPU temperature, memory usage, and disk usage"},
+  {"name": "get_system_uptime", "description": "Gets system uptime and boot time"},
+  {"name": "get_network_info", "description": "Gets network interfaces and traffic statistics"},
+  {"name": "get_top_processes", "description": "Gets top 5 processes by CPU and memory usage"}
+]
 <|tool_list_end|>
 
-When asked about the status, temperature, memory usage, or system information of the Raspberry Pi, you MUST respond with ONLY:
-get_raspberry_pi_status()
+When asked about system information, uptime, network, or processes, respond with ONLY the appropriate function call like:
+get_system_uptime()
 
-After receiving tool results, provide a helpful, natural language response explaining the information.`
-    };
+Do not add any other text when calling a tool. After receiving tool results, provide a natural language explanation.`
+};
     
     // Ensure system message is first
     if (messages[0]?.role !== 'system') {
@@ -171,14 +203,18 @@ After receiving tool results, provide a helpful, natural language response expla
     // Check if we should look for a tool call
     const lastUserMessage = messages[messages.length - 1];
     const userQuery = lastUserMessage.content.toLowerCase();
-    
+        
     const shouldCheckForTool = lastUserMessage.role === 'user' && 
         (userQuery.includes('status') || 
-         userQuery.includes('temperature') ||
-         userQuery.includes('temp') ||
-         userQuery.includes('memory') ||
-         userQuery.includes('cpu') ||
-         userQuery.includes('system info')) &&
+        userQuery.includes('temperature') ||
+        userQuery.includes('temp') ||
+        userQuery.includes('memory') ||
+        userQuery.includes('cpu') ||
+        userQuery.includes('uptime') ||      // ADD THIS
+        userQuery.includes('network') ||     // ADD THIS  
+        userQuery.includes('processes') ||   // ADD THIS
+        userQuery.includes('disk') ||         // ADD THIS
+        userQuery.includes('system info')) &&
         !userQuery.includes('weather');
 
     if (shouldCheckForTool) {
@@ -211,21 +247,21 @@ After receiving tool results, provide a helpful, natural language response expla
         
         console.log("[Backend] Model output:", modelOutput);
         
-        const toolCallRegex = /^([a-zA-Z0-9_]+)\s*\(\s*\)$/;
-        const match = toolCallRegex.exec(modelOutput);
+        const toolCallRegex = /^(get_raspberry_pi_status|get_system_uptime|get_network_info|get_top_processes)\s*\(\s*\)$/;
+        const match = toolCallRegex.exec(modelOutput.trim());
 
         if (match && available_tools[match[1]]) {
             const toolName = match[1];
             console.log(`[Backend] Tool call detected: ${toolName}`);
             
-            // Execute the tool
+            // Execute the tool via MCP
             const toolResult = await available_tools[toolName]();
-            console.log(`[Backend] Tool result:`, toolResult);
+            console.log(`[Backend] MCP tool result:`, toolResult);
             
-            // Build the conversation with tool result
+            // Build the conversation with tool result - DON'T include the function call in the visible message
             const toolMessages = [
                 ...messages,
-                { role: 'assistant', content: `<|tool_call_start|>[${modelOutput}]<|tool_call_end|>` },
+                { role: 'assistant', content: `<|tool_call_start|>[${modelOutput}]<|tool_call_end|>Checking system information...` },
                 { role: 'tool', content: toolResult }
             ];
 

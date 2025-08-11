@@ -1,2 +1,1 @@
-root ::= ws "get_raspberry_pi_status" ws "(" ws ")"
-ws ::= [ \t\n]*
+root ::= "get_raspberry_pi_status()" | "get_system_uptime()" | "get_network_info()" | "get_top_processes()"

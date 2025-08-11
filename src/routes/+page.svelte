@@ -90,8 +90,6 @@
 <main>
   <div class="header">
     <h1>Pi LFM Chat</h1>
-    <!-- THIS IS THE KEY CHANGE: Added type="button" -->
-    <button type="button" class="clear-button" on:click={clearChat}>Clear Chat</button>
   </div>
 
   <div class="chat-window">
@@ -118,6 +116,10 @@
     />
     <button type="submit" disabled={isLoading}>Send</button>
   </form>
+
+  <div class="clear-chat-container">
+    <button type="button" class="clear-button" on:click={clearChat}>Clear Chat</button>
+  </div>
 </main>
 
 <style>
@@ -125,13 +127,13 @@
     max-width: 768px;
     margin: 0 auto;
     font-family: sans-serif;
+    font-size: 1rem; /* Add this line for consistent size */
     padding: 1em;
   }
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1em;
+
+  .header, h1, .chat-window, .message, input, button {
+    font-family: inherit;
+    font-size: inherit;
   }
   h1 {
     margin: 0;
@@ -192,6 +194,11 @@
   }
   .clear-button {
     background-color: #6c757d;
+  }
+  .clear-chat-container {
+    display: flex;
+    text-align: center;
+    margin-top: 1em;
   }
   .clear-button:hover {
     background-color: #5a6268;
